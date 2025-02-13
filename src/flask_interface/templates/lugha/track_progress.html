@@ -11,42 +11,6 @@
         <div class="logo-icon">L</div>
         <div class="logo-text">Lugha</div>
     </div>
-    <h1 class="welcome-title">Track Your <span>Progress</span></h1>
-    <p class="welcome-subtitle">Review your language learning journey</p>
-
-    <div class="form-container">
-        <div class="form-row">
-            <div class="form-group form-group-half">
-                <label for="sort-order">Sort by Date:</label>
-                <select id="sort-order" class="form-control dropdown-select">
-                    <option value="desc">Descending</option>
-                    <option value="asc">Ascending</option>
-                </select>
-            </div>
-            <div class="form-group form-group-half">
-                <label for="sort-language">Sort by Language:</label>
-                <select class="form-control dropdown-select" id="language">
-                    <option value="all">All</option>
-                    <option value="arabic">Arabic</option>
-                    <option value="english">English</option>
-                    <option value="french">French</option>
-                    <option value="german">German</option>
-                    <option value="italian">Italian</option>
-                    <option value="spanish">Spanish</option>
-                    <option value="swedish">Swedish</option>
-                </select>
-            </div>
-        </div>
-        <div class="form-group">
-            <label for="sort-theme">Sort by Theme:</label>
-            <select id="sort-theme" class="form-control dropdown-select">
-                <option value="all">All</option>
-                {% for theme in learning_themes %}
-                <option value="{{ theme }}">{{ theme }}</option>
-                {% endfor %}
-            </select>
-        </div>
-    </div>
     <div id="loading-indicator" style="display:none;">
         <div class="loading-spinner"></div>
         <p>Processing your data...</p>
@@ -56,9 +20,9 @@
 
     <div class="message-description">
         <div class="button-group">
-            <button id="back-to-home" class="btn">
-                <i data-feather="rewind"></i> Reset and Rewind
-            </button>
+            <button id="back-to-chat" class="btn">
+                <i data-feather="message-circle"></i> New Conversation
+            </button>       
         </div>
     </div>
 {% endblock %}
@@ -89,27 +53,36 @@
                         $('#progress-container').show().empty();
                         if (Array.isArray(data.progress) && data.progress.length > 0) {
                             data.progress.forEach(item => {
-                                const formattedEvaluation = item.evaluation
-                                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                                    .replace(/\n/g, '<br>');
+                                if (item.interaction_count > 0) {
+                                const overallScorePattern = /[-*] Overall Score:\s*(\d+)%/;
+                                let formattedEvaluation = "";
 
+                                const match = item.evaluation.match(overallScorePattern);
+                                if (match) {
+                                formattedEvaluation = `Score: ${match[1]}%<br>`;}
+                                let structuredEvaluation = item.evaluation
+                                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') 
+                                .replace(/\*(.*?)\*/g, '<em>$1</em>') 
+                                .replace(/\n/g, '<br>'); 
                                 $('#progress-container').append(`
-                                    <div class="progress-item">
-                                        <div class="progress-item-header">
+                                    <details class="progress-item">
+                                         <summary class="progress-item-header">
                                             <strong><i data-feather="calendar"></i> ${item.date}</strong>
-                                            <span><i data-feather="globe"></i> ${item.language} | <i data-feather="bookmark"></i> ${item.theme}</span>
-                                        </div>
+                                            <span><i data-feather="globe"></i> ${item.language} | ${formattedEvaluation}</span>
+                                            <i class="arrow"></i> <!-- Arrow icon -->
+                                        </summary>
                                         <div class="progress-item-body">
                                             <p><strong><i data-feather="clock"></i> Duration:</strong> ${item.duration}</p>
                                             <p><strong><i data-feather="message-circle"></i> Interactions:</strong> ${item.interaction_count}</p>
+                                            <p><strong><i data-feather="tag"></i> Theme:</strong> ${item.theme}</p>
                                             <div class="evaluation-section">
                                                 <strong><i data-feather="check-circle"></i> Evaluation:</strong>
-                                                <div class="evaluation-content">${formattedEvaluation}</div>
+                                                <div class="evaluation-content">${structuredEvaluation}</div>
                                             </div>
                                         </div>
-                                    </div>
+                                     </details>
                                 `);
+                                    }
                                 feather.replace();
                             });
                         } else {
@@ -152,9 +125,17 @@
                 fetchProgress(sortOrder, languageFilter, themeFilter);
             });
 
-            $('#back-to-home').click(function() {
-                window.location.href = '/';
-            });
+            $('#back-to-chat').click(function() {
+            const username = localStorage.getItem("username");
+            const language = localStorage.getItem("language");
+            const theme = localStorage.getItem("theme");
+
+            if (username && language && theme) {
+                 window.location.href = `/chat-interface?username=${encodeURIComponent(username)}&language=${encodeURIComponent(language)}&theme=${encodeURIComponent(theme)}`;
+            } else {
+                alert("User data missing. Please restart the app.");
+            }
+});
         });
     </script>
 {% endblock %}

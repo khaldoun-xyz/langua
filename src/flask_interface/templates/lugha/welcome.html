@@ -70,7 +70,10 @@
                 const username = $('#username').val();
                 const language = $('#language').val();
                 const theme = $('#theme').val();
-
+                
+                localStorage.setItem("username", username);
+                localStorage.setItem("language", language);
+                localStorage.setItem("theme", theme);
                 if (username && language && theme) {
                     window.location.href = `/chat-interface?username=${encodeURIComponent(username)}&language=${encodeURIComponent(language)}&theme=${encodeURIComponent(theme)}`;
                 } else {
