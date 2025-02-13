@@ -1,123 +1,160 @@
 # database_utils.py
 from datetime import datetime
+from typing import Dict, List, Optional
 
 from evaluation_utils.evaluate import format_duration
 from utils.config import create_db_connection
-from utils.learning_themes import LEARNING_THEMES
 
 
-def log_conversation_to_db(
-    username, prompt, response, start_time, end_time, interaction_count, language, theme
-):
-    if start_time is None or end_time is None:
-        print(
-            f"Start time or end time is None for user: {username}. Cannot log conversation."
-        )
-        return
+def log_conversation_to_db(username: str, language: str, theme: str) -> int:
+    with create_db_connection() as conn:
+        if conn is None:
+            return -1
 
-    duration = end_time - start_time
-    conn = create_db_connection()
-    if conn is None:
-        return
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO conversations (
-                    username, prompt, response, created_at, start_time, end_time,
-                    interaction_count, duration, language, theme
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO conversations_sessions (username, language, theme, start_time)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING conversation_id
+                    """,
+                    (username, language, theme, datetime.now()),
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    username,
-                    prompt,
-                    response,
-                    datetime.now(),
-                    start_time,
-                    end_time,
-                    interaction_count,
-                    duration,
-                    language.lower(),
-                    theme,
-                ),
-            )
-            conn.commit()
-    except Exception as e:
-        print(f"Error logging conversation: {e}")
-    finally:
-        if conn:
-            conn.close()
+                conversation_id = cursor.fetchone()[0]
+                conn.commit()
+                return conversation_id
+        except Exception as e:
+            print(f"Error logging conversation session: {e}")
+            return -1
+
+
+def log_evaluation_to_db(
+    conversation_id: int,
+    evaluation: str,
+    end_time: datetime,
+    duration: datetime,
+    interaction_count: int,
+) -> bool:
+    with create_db_connection() as conn:
+        if conn is None:
+            return False
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO conversations_evaluations
+                    (conversation_id, evaluation, end_time, duration, interaction_count)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        conversation_id,
+                        evaluation,
+                        end_time,
+                        duration,
+                        interaction_count,
+                    ),
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            print(f"Error logging evaluation: {e}")
+            conn.rollback()
+            return False
+
+
+def log_message_to_db(conversation_id: int, user_prompt: str, bot_message: str) -> None:
+    with create_db_connection() as conn:
+        if conn is None:
+            return
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO conversations_messages (conversation_id, user_prompt, bot_message)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (conversation_id, user_prompt, bot_message),
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"Error logging message: {e}")
 
 
 def fetch_progress_data(
-    username, sort_order="desc", language_filter="all", theme_filter="all"
-):
-    conn = None
-    try:
-        conn = create_db_connection()
-        with conn.cursor() as cursor:
-            query = """
-                SELECT created_at, language, theme, duration, interaction_count, evaluation
-                FROM conversations
-                WHERE username = %s
-                AND evaluation IS NOT NULL
-                AND theme IS NOT NULL
-                AND language IS NOT NULL
-            """
-            params = [username]
-            if language_filter != "all":
-                query += " AND LOWER(language) = LOWER(%s)"
-                params.append(language_filter)
+    username: str,
+    sort_order: str = "desc",
+    language_filter: str = "all",
+    theme_filter: str = "all",
+) -> Optional[List[Dict]]:
+    with create_db_connection() as conn:
+        if conn is None:
+            return None
 
-            if theme_filter != "all":
-                query += " AND theme = %s"
-                params.append(theme_filter)
+        try:
+            with conn.cursor() as cursor:
+                query = """
+                    SELECT cs.created_at, cs.language, cs.theme, ce.duration, ce.interaction_count, ce.evaluation
+                    FROM conversations_sessions cs
+                    LEFT JOIN conversations_evaluations ce ON cs.conversation_id = ce.conversation_id
+                    WHERE cs.username = %s
+                """
+                params = [username]
+                if language_filter != "all":
+                    query += " AND LOWER(cs.language) = LOWER(%s)"
+                    params.append(language_filter)
 
-            order_direction = "ASC" if sort_order.lower() == "asc" else "DESC"
-            query += f" ORDER BY created_at {order_direction}"
+                if theme_filter != "all":
+                    query += " AND cs.theme = %s"
+                    params.append(theme_filter)
 
-            cursor.execute(query, params)
-            progress = cursor.fetchall()
-            result = []
-            if progress:
-                for row in progress:
-                    (
-                        created_at,
-                        language,
-                        theme,
-                        duration,
-                        interaction_count,
-                        evaluation,
-                    ) = row
-                    result.append(
-                        {
-                            "date": created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                            "language": language.capitalize(),
-                            "theme": theme,
-                            "duration": format_duration(duration),
-                            "interaction_count": interaction_count,
-                            "evaluation": evaluation,
-                        }
-                    )
-            return result
-    except Exception as e:
-        return None
-    finally:
-        if conn:
-            conn.close()
+                order_direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+                query += f" ORDER BY cs.created_at {order_direction}"
+
+                cursor.execute(query, params)
+                progress = cursor.fetchall()
+                result = []
+                if progress:
+                    for row in progress:
+                        (
+                            created_at,
+                            language,
+                            theme,
+                            duration,
+                            interaction_count,
+                            evaluation,
+                        ) = row
+                        result.append(
+                            {
+                                "date": created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                                "language": language.capitalize(),
+                                "theme": theme,
+                                "duration": format_duration(duration),
+                                "interaction_count": interaction_count,
+                                "evaluation": (
+                                    evaluation
+                                    if evaluation
+                                    else "No evaluation available"
+                                ),
+                            }
+                        )
+                return result
+        except Exception as e:
+            print(f"Error fetching progress data: {e}")
+            return None
 
 
-def fetch_all_users():
-    conn = None
-    try:
-        conn = create_db_connection()
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT username FROM conversations")
-            return [row[0] for row in cursor.fetchall()]
-    except Exception as e:
-        return []
-    finally:
-        if conn:
-            conn.close()
+def fetch_all_users() -> List[str]:
+    with create_db_connection() as conn:
+        if conn is None:
+            return []
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT DISTINCT username FROM conversations_sessions")
+                return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"Error fetching users: {e}")
+            return []
